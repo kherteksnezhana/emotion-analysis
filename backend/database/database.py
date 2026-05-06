@@ -9,10 +9,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Получаем DATABASE_URL из переменных окружения
-# Пример для локального PostgreSQL: postgresql://user:password@localhost:5432/emotion_db
-# Пример для Render: postgresql://user:password@host:port/dbname
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:postgres@localhost:5432/emotion_db')
+# Для Render - берем URL из переменных окружения
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+# Для локальной разработки (опционально)
+if not DATABASE_URL:
+    from dotenv import load_dotenv
+    load_dotenv()
+    DATABASE_URL = os.getenv('DATABASE_URL')
+
+print(f"Подключение к базе данных...")  # Не выводите URL в лог из соображений безопасности
+
 
 # Создаём пул соединений для производительности
 pool = None
