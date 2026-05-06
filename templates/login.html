@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-ambient auth-ambient-left"></div>
+        <div class="auth-ambient auth-ambient-right"></div>
+        <div class="auth-card">
+            <div class="auth-header">
+                <h2 class="auth-title">Добро пожаловать!</h2>
+                <p class="auth-subtitle">Платформа для оценки эмоционального <br>
+                состояния сотрудников</p>
+            </div>
+            
+            {% if error == 'auth' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                 Неверное имя пользователя или пароль
+            </div>
+            {% elif error == 'not_found' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                 Пользователь с таким логином не найден
+            </div>
+            {% elif error == 'empty' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                 Пожалуйста, заполните все поля
+            </div>
+            {% elif error == 'blocked' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                 Ваш аккаунт временно заблокирован
+            </div>
+            {% elif registered == 'success' %}
+            <div class="alert alert-success">
+                <svg class="icon-emotion" style="color: var(--color-green); width: 16px; height: 16px;" data-lucide="circle-check"></svg>
+                 Регистрация прошла успешно!
+            </div>
+            {% endif %}
+            
+            {% if next %}
+            <div class="alert alert-info">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                 Пожалуйста, авторизуйтесь для доступа
+            </div>
+            {% endif %}
+            
+            <form action="/api/login" method="post">
+                <div class="input-group-container">
+                    <div class="input-group" style="margin-bottom: 3px;">
+                        <label for="username">Логин</label>
+                        <input type="text" id="username" name="username" placeholder="Введите ваш логин" required autocomplete="username">
+                    </div>
+                    <div class="input-group">
+                        <label for="password">Пароль</label>
+                        <input type="password" id="password" name="password" placeholder="Введите пароль" required autocomplete="current-password">
+                    </div>
+                </div>
+                <button class="btn btn-primary btn-block" type="submit">Войти в систему</button>
+            </form>
+            
+            <div class="auth-footer">
+                <p>Нет аккаунта? <a href="/register">Зарегистрироваться</a></p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

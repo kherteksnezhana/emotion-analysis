@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Регистрация</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-ambient auth-ambient-left"></div>
+        <div class="auth-ambient auth-ambient-right"></div>
+        <div class="auth-card">
+            <div class="auth-header">
+                <h2 class="auth-title">Регистрация</h2>
+                <p class="auth-subtitle">Создайте аккаунт в системе</p>
+            </div>
+            
+            {% if error == 'exists' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                Пользователь с таким логином уже существует. Пожалуйста, выберите другой логин.
+            </div>
+            {% elif error == 'short_password' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                Пароль должен содержать минимум 4 символа.
+            </div>
+            {% elif error == 'invalid_name' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                Пожалуйста, введите корректное ФИО (минимум 5 символов).
+            </div>
+            {% elif error == 'invalid_username' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                Логин может содержать только латинские буквы, цифры и подчёркивание.
+            </div>
+            {% elif error == 'empty' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                Пожалуйста, заполните все поля.
+            </div>
+            {% elif error == 'db_error' %}
+            <div class="alert alert-error">
+                <svg class="icon-emotion" style="color: var(--color-warning); width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                Ошибка базы данных. Пожалуйста, попробуйте позже.
+            </div>
+            {% endif %}
+            
+            {% if success %}
+            <div class="alert alert-success">
+                <svg class="icon-emotion" style="color: var(--color-green); width: 16px; height: 16px;" data-lucide="circle-check"></svg> 
+                {{ success }}
+            </div>
+            {% endif %}
+            
+            <form action="/api/register" method="post" id="registerForm">
+                <div class="input-group-container">
+                    <div class="form-group">
+                        <label for="full_name">ФИО*</label>
+                        <input type="text" id="full_name" name="full_name" required 
+                            placeholder="Иванов Иван Иванович"
+                            value="{{ form_data.get('full_name', '') if form_data else '' }}">
+                        <span class="error-message" id="fullNameError"></span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="username">Логин*</label>
+                        <input type="text" id="username" name="username" required 
+                            placeholder="ivanov_ii"
+                            pattern="[a-zA-Z0-9_]+"
+                            title="Только латинские буквы, цифры и подчёркивание"
+                            value="{{ form_data.get('username', '') if form_data else '' }}">
+                        <span class="error-message" id="usernameError"></span>
+                        <small class="field-hint">Только латинские буквы, цифры и _</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Пароль*</label>
+                        <input type="password" id="password" name="password" required 
+                            placeholder="Минимум 4 символа">
+                        <div class="password-strength" id="passwordStrength"></div>
+                        <span class="error-message" id="passwordError"></span>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="role">Роль*</label>
+                        <select id="role" name="role" required>
+                            <option value="">Выберите роль</option>
+                            <option value="Сотрудник" {% if form_data and form_data.get('role') == 'Сотрудник' %}selected{% endif %}>Сотрудник</option>
+                            <option value="Руководитель" {% if form_data and form_data.get('role') == 'Руководитель' %}selected{% endif %}>Руководитель</option>
+                            <option value="HR-администратор" {% if form_data and form_data.get('role') == 'HR-администратор' %}selected{% endif %}>HR-администратор</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="department">Отдел*</label>
+                        <select id="department" name="department" required>
+                            <option value="">Выберите отдел</option>
+                            <option value="IT" {% if form_data and form_data.get('department') == 'IT' %}selected{% endif %}>IT</option>
+                            <option value="Маркетинг" {% if form_data and form_data.get('department') == 'Маркетинг' %}selected{% endif %}>Маркетинг</option>
+                            <option value="Бухгалтерия" {% if form_data and form_data.get('department') == 'Бухгалтерия' %}selected{% endif %}>Бухгалтерия</option>
+                            <option value="Продажи" {% if form_data and form_data.get('department') == 'Продажи' %}selected{% endif %}>Продажи</option>
+                            <option value="HR" {% if form_data and form_data.get('department') == 'HR' %}selected{% endif %}>HR</option>
+                        </select>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary btn-block">Создать аккаунт</button>
+            </form>
+                        
+            <div class="auth-footer">
+                <p>Уже есть аккаунт? <a href="/">Войти</a></p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Валидация пароля в реальном времени
+        const passwordInput = document.getElementById('password');
+        const strengthDiv = document.getElementById('passwordStrength');
+        
+        passwordInput.addEventListener('input', function() {
+            const password = this.value;
+            let strength = 0;
+            let message = '';
+            let className = '';
+            
+            if (password.length >= 4) strength++;
+            if (password.length >= 8) strength++;
+            if (/[A-Z]/.test(password)) strength++;
+            if (/[0-9]/.test(password)) strength++;
+            
+            if (password.length === 0) {
+                message = '';
+            } else if (strength <= 1) {
+                message = 'Слабый пароль';
+                className = 'strength-weak';
+            } else if (strength <= 3) {
+                message = 'Средний пароль';
+                className = 'strength-medium';
+            } else {
+                message = 'Сильный пароль';
+                className = 'strength-strong';
+            }
+            
+            strengthDiv.textContent = message;
+            strengthDiv.className = 'password-strength ' + className;
+        });
+        
+        // Валидация формы перед отправкой
+        document.getElementById('registerForm').addEventListener('submit', function(e) {
+            let isValid = true;
+            const fullName = document.getElementById('full_name').value.trim();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const role = document.getElementById('role').value;
+            const department = document.getElementById('department').value;
+            
+            // Очищаем предыдущие ошибки
+            document.querySelectorAll('.error-message').forEach(el => el.textContent = '');
+            document.querySelectorAll('.form-group input, .form-group select').forEach(el => el.classList.remove('error'));
+            
+            // Проверка ФИО
+            if (fullName.length < 5) {
+                document.getElementById('fullNameError').textContent = 'Введите корректное ФИО (минимум 5 символов)';
+                document.getElementById('full_name').classList.add('error');
+                isValid = false;
+            }
+            
+            // Проверка логина (только латиница, цифры, _)
+            const usernameRegex = /^[a-zA-Z0-9_]+$/;
+            if (!usernameRegex.test(username)) {
+                document.getElementById('usernameError').textContent = 'Логин может содержать только латинские буквы, цифры и подчёркивание';
+                document.getElementById('username').classList.add('error');
+                isValid = false;
+            } else if (username.length < 3) {
+                document.getElementById('usernameError').textContent = 'Логин должен содержать минимум 3 символа';
+                document.getElementById('username').classList.add('error');
+                isValid = false;
+            }
+            
+            // Проверка пароля
+            if (password.length < 4) {
+                document.getElementById('passwordError').textContent = 'Пароль должен содержать минимум 4 символа';
+                document.getElementById('password').classList.add('error');
+                isValid = false;
+            }
+            
+            // Проверка выбора роли
+            if (!role) {
+                document.getElementById('role').classList.add('error');
+                isValid = false;
+            }
+            
+            // Проверка выбора отдела
+            if (!department) {
+                document.getElementById('department').classList.add('error');
+                isValid = false;
+            }
+            
+            if (!isValid) {
+                e.preventDefault();
+            }
+        });
+    </script>
+</body>
+</html>

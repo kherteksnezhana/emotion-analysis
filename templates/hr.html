@@ -1,0 +1,866 @@
+{% extends 'layout.html' %}
+
+{% block scripts %}
+<script>
+// ==================== КОНФИГУРАЦИЯ ====================
+const CONFIG = {
+    pastelColors: [
+        'var(--avatar-pastel-green)',
+        'var(--avatar-pastel-orange)',
+        'var(--avatar-pastel-pink)',
+        'var(--avatar-pastel-yellow)'
+    ]
+};
+
+// ==================== CHART MANAGER ====================
+const ChartManager = (function() {
+    const instances = {};
+    
+    function destroy(name) {
+        if (instances[name]) {
+            try {
+                instances[name].destroy();
+            } catch(e) {
+                console.warn(`Chart ${name} destroy error:`, e);
+            }
+            delete instances[name];
+        }
+    }
+    
+    function create(name, ctxId, type, data, options) {
+        destroy(name);
+        
+        const element = document.getElementById(ctxId);
+        if (!element) {
+            console.warn(`Canvas #${ctxId} not found`);
+            return null;
+        }
+        
+        const ctx = element.getContext('2d');
+        if (!ctx) return null;
+        
+        try {
+            instances[name] = new Chart(ctx, { type, data, options });
+            return instances[name];
+        } catch (error) {
+            console.error(`Chart ${name} error:`, error);
+            return null;
+        }
+    }
+    
+    return { create, destroy };
+})();
+
+// ==================== ДАННЫЕ ОТ СЕРВЕРА ====================
+const deptAvgScores = {{ dept_avg_scores|tojson }};
+const emotionStats = {{ emotion_stats|tojson }};
+const burnoutHistory = {{ company_burnout_history|tojson }};
+const allEmployees = {{ employees_data|tojson }};
+const highBurnoutIds = new Set({{ high_burnout_employees|tojson }}.map(e => e.id));
+
+// ==================== УТИЛИТЫ ====================
+function getAvatarStyle(employeeId) {
+    const index = (employeeId || 0) % CONFIG.pastelColors.length;
+    return { backgroundColor: CONFIG.pastelColors[index] };
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>]/g, function(m) {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
+
+// ==================== ГРАФИКИ ====================
+function renderDeptChart() {
+    if (!deptAvgScores.length) return;
+    
+    ChartManager.create('deptChart', 'deptChart', 'bar', {
+        labels: deptAvgScores.map(d => d.name || d.department),
+        datasets: [{
+            label: 'Средний балл',
+            data: deptAvgScores.map(d => d.score),
+            backgroundColor: '#7dc46b',
+            borderRadius: 8
+        }]
+    }, {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, max: 100, grid: { color: '#e8ede2' } }, x: { grid: { display: false } } },
+        plugins: { legend: { display: false } }
+    });
+}
+
+function renderEmotionsChart() {
+    if (!emotionStats.length) return;
+    
+    ChartManager.create('emotionsChart', 'emotionsChart', 'doughnut', {
+        labels: emotionStats.map(e => e.label),
+        datasets: [{
+            data: emotionStats.map(e => e.count),
+            backgroundColor: ['#7dc46b', '#7c9cd8', '#f0a050', '#e8a838'],
+            borderWidth: 0
+        }]
+    }, {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } }
+    });
+}
+
+function renderBurnoutChart() {
+    const ctx = document.getElementById('burnoutChart');
+    if (!ctx) return;
+    
+    // Данные по компании
+    const companyData = burnoutHistory || [];
+    
+    // Данные по отделам
+    const deptsData = {{ departments_burnout_history|tojson }};
+    
+    // Если нет никаких данных
+    if (companyData.length === 0 && Object.keys(deptsData).length === 0) {
+        const container = document.getElementById('burnoutChartContainer');
+        if (container) {
+            container.innerHTML = '<div class="card" style="padding: 40px; text-align: center;"><p class="info-note">Нет данных для отображения</p></div>';
+        }
+        return;
+    }
+    
+    // Собираем все даты для оси X (уникальные, отсортированные)
+    let allDates = [...companyData.map(h => h.date)];
+    for (const dept in deptsData) {
+        allDates.push(...deptsData[dept].map(d => d.date));
+    }
+    const uniqueDates = [...new Set(allDates)].sort();
+    
+    // Форматируем даты для отображения
+    const labels = uniqueDates.map(d => {
+        const parts = d.split('-');
+        return `${parts[2]}.${parts[1]}`;
+    });
+    
+    // Цветовая палитра для отделов
+    const deptColors = {
+        'IT': '#7c9cd8',
+        'Маркетинг': '#e8a838',
+        'Продажи': '#f0a050',
+        'Бухгалтерия': '#7dc46b',
+        'HR': '#d9534f'
+    };
+    
+    // Строим датасеты
+    const datasets = [];
+    
+    // Датасет для компании (основной, жирный)
+    if (companyData.length > 0) {
+        const companyBurnoutByDate = {};
+        companyData.forEach(h => { companyBurnoutByDate[h.date] = h.burnout * 100; });
+        
+        const companyValues = uniqueDates.map(d => companyBurnoutByDate[d] || null);
+        
+        datasets.push({
+            label: 'Общий индекс',
+            id: 'company',
+            data: companyValues,
+            borderColor: '#2e8b73',
+            backgroundColor: 'rgba(46, 139, 115, 0.08)',
+            borderWidth: 3,
+            pointRadius: 4,
+            pointHoverRadius: 6,
+            pointBackgroundColor: '#2e8b73',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            tension: 0.3,
+            fill: false
+        });
+    }
+    
+    // Датасеты для отделов
+    for (const [dept, history] of Object.entries(deptsData)) {
+        if (!history || history.length === 0) continue;
+        
+        const deptBurnoutByDate = {};
+        history.forEach(h => { deptBurnoutByDate[h.date] = h.burnout * 100; });
+        
+        const deptValues = uniqueDates.map(d => deptBurnoutByDate[d] || null);
+        
+        datasets.push({
+            label: `${dept}`,
+            id: dept,
+            data: deptValues,
+            borderColor: deptColors[dept] || '#7c9cd8',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 3,
+            pointHoverRadius: 5,
+            pointBackgroundColor: deptColors[dept] || '#7c9cd8',
+            pointBorderColor: '#fff',
+            pointBorderWidth: 1.5,
+            tension: 0.3,
+            fill: false
+        });
+    }
+    
+    ChartManager.create('burnoutChart', 'burnoutChart', 'line', {
+        labels: labels,
+        datasets: datasets
+    }, {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { 
+                position: 'bottom',
+                labels: { boxWidth: 12, font: { size: 11 } }
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+                callbacks: {
+                    label: function(context) {
+                        let label = context.dataset.label || '';
+                        if (label) label += ': ';
+                        if (context.raw !== null) {
+                            label += Math.round(context.raw) + '%';
+                        } else {
+                            label += 'нет данных';
+                        }
+                        return label;
+                    }
+                }
+            }
+        },
+        scales: {
+            y: { 
+                beginAtZero: true, 
+                max: 100,
+                title: { display: true, text: 'Индекс выгорания (%)', font: { size: 11 } },
+                grid: { color: '#e8ede2' }
+            },
+            x: { 
+                title: { display: true, text: 'Дата', font: { size: 11 } },
+                grid: { display: false }
+            }
+        }
+    });
+}
+
+function renderAllCharts() {
+    renderDeptChart();
+    renderEmotionsChart();
+    renderBurnoutChart();
+}
+
+// ==================== РЕНДЕР СПИСКОВ ====================
+function renderEmployeeList(containerId, employees) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    if (!employees || employees.length === 0) {
+        container.innerHTML = '<div class="empty-state">Нет данных</div>';
+        return;
+    }
+    
+    container.innerHTML = employees.map(e => {
+        const avatarStyle = getAvatarStyle(e.id);
+        const trend = e.score_trend || { icon: '→', change: 0, color: 'neutral' };
+        const hasReports = e.has_reports === true;
+        
+        // Вычисляем burnout (если есть)
+        const burnoutPercent = e.last_burnout !== undefined && e.last_burnout !== null 
+            ? Math.round(e.last_burnout * 100) 
+            : 0;
+        
+        // Определяем класс для wellbeing (самочувствие)
+        let wellbeingClass = 'medium';
+        if (e.last_score >= 80) wellbeingClass = 'high';
+        else if (e.last_score < 60) wellbeingClass = 'low';
+
+        // Определяем класс для выгорания
+        let burnoutClass = 'medium';
+        if (burnoutPercent >= 70) burnoutClass = 'high';
+        else if (burnoutPercent < 40) burnoutClass = 'low';
+        
+        // Иконка для wellbeing
+        let wellbeingIcon = 'meh';
+        if (e.last_score >= 80) wellbeingIcon = 'smile';
+        else if (e.last_score < 60) wellbeingIcon = 'frown';
+        
+        return `
+            <div class="team-item" style="display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--color-line-solid);">
+                <div class="member-info" style="display: flex; align-items: center; gap: 14px;">
+                    <div class="employee-avatar" style="width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 18px; background-color: ${avatarStyle.backgroundColor};">
+                        ${escapeHtml((e.full_name || '?')[0])}
+                    </div>
+                    <div class="member-details">
+                        <strong>${escapeHtml(e.full_name)}</strong>
+                        <span class="subtext" style="font-size: 12px; color: var(--color-text-soft);">${escapeHtml(e.department)} • ${e.role || 'Сотрудник'}</span>
+                    </div>
+                </div>
+                <div class="member-stats" style="text-align: right;">
+                    <div class="member-stats-top" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
+                        ${!hasReports ? 
+                            '<span class="score-badge new" data-tooltip="Новый сотрудник, ещё нет ни одного отчёта">Новый</span>' : 
+                            `<span class="score-badge ${wellbeingClass}" data-tooltip="Взвешенный средний балл за всё время">
+                                <i data-lucide="${wellbeingIcon}" style="width: 14px; height: 14px; margin-right: 6px;"></i>
+                                ${Math.round(e.last_score)}%
+                            </span>`
+                        }
+                        ${hasReports && trend.change ? 
+                            `<span class="trend-badge trend-${trend.color}" style="font-size: 11px; padding: 2px 6px;" data-tooltip="Изменение взвешенного среднего балла за последние 30 дней">
+                                ${trend.icon} ${Math.abs(trend.change)}%
+                            </span>` : ''
+                        }
+                        <span style="margin-left: 4px;">|</span>
+                        <span class="score-badge ${burnoutClass}" data-tooltip="Индекс выгорания">
+                            <i data-lucide="zap" style="width: 14px; height: 14px; margin-right: 4px;"></i>
+                            ${burnoutPercent}%
+                        </span>
+                    </div>
+                    <p class="info-note no-margin" style="font-size: 11px; margin-top: 4px;">${e.report_count || 0} отчётов</p>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    // Обновляем иконки после рендера
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+
+// ==================== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК И ФИЛЬТРАЦИЯ ====================
+let currentDepartment = 'all';
+let currentTab = 'overview';
+
+function switchHRTab(tabName, event) {
+    currentTab = tabName;
+    
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    const tabElement = document.getElementById('tab-' + tabName);
+    if (tabElement) tabElement.classList.add('active');
+    
+    document.querySelectorAll('.tab-link').forEach(t => t.classList.remove('active'));
+    if (event?.target) event.target.classList.add('active');
+    
+    const deptFilter = document.getElementById('deptFilter');
+    if (deptFilter) deptFilter.style.display = (tabName === 'overview') ? 'none' : 'flex';
+    
+    renderDataForTab();
+}
+
+function renderDataForTab() {
+    if (currentTab === 'overview') {
+        renderAllCharts();
+        return;
+    }
+    
+    let filtered = [...allEmployees];
+    
+    if (currentDepartment !== 'all') {
+        filtered = filtered.filter(e => e.department === currentDepartment);
+    }
+    
+   if (currentTab === 'attention') {
+        filtered = filtered.filter(e => e.has_reports && e.last_score < 60);
+        renderEmployeeList('attentionList', filtered);
+    } else if (currentTab === 'best') {
+        filtered = filtered.filter(e => e.last_score >= 80);
+        renderEmployeeList('bestList', filtered);
+    } else if (currentTab === 'all') {
+        renderEmployeeList('allEmployeesList', filtered);
+    } else if (currentTab === 'burnout') {
+        filtered = filtered.filter(e => highBurnoutIds.has(e.id));
+        renderEmployeeList('burnoutList', filtered);
+    }
+}
+
+function initDepartmentFilters() {
+    const filterBtns = document.querySelectorAll('.filter-btn');
+    
+    const handleFilterClick = (e) => {
+        const btn = e.currentTarget;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentDepartment = btn.dataset.dept;
+        renderDataForTab();
+    };
+    
+    filterBtns.forEach(btn => {
+        btn.removeEventListener('click', handleFilterClick);
+        btn.addEventListener('click', handleFilterClick);
+    });
+}
+
+// ==================== ЭКСПОРТ МОДАЛКА ====================
+const ExportModal = {
+    elements: {},
+    isOpen: false,
+    
+    init() {
+        this.elements.modal = document.getElementById('exportModal');
+        this.elements.exportType = document.getElementById('exportType');
+        this.elements.periodGroup = document.getElementById('periodGroup');
+        this.elements.dateRangeGroup = document.getElementById('dateRangeGroup');
+        this.elements.departmentGroup = document.getElementById('departmentGroup');
+        this.elements.startDate = document.getElementById('startDate');
+        this.elements.endDate = document.getElementById('endDate');
+        this.elements.exportPeriod = document.getElementById('exportPeriod');
+        this.elements.exportDepartment = document.getElementById('exportDepartment');
+        this.elements.dateRangeError = document.getElementById('dateRangeError');
+        
+        this.attachEvents();
+    },
+    
+    attachEvents() {
+        if (this.elements.exportType) {
+            this.elements.exportType.addEventListener('change', () => this.toggleFields());
+        }
+        if (this.elements.startDate) {
+            this.elements.startDate.addEventListener('change', () => this.validateDates());
+        }
+        if (this.elements.endDate) {
+            this.elements.endDate.addEventListener('change', () => this.validateDates());
+        }
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.isOpen) this.close();
+        });
+        
+        if (this.elements.modal) {
+            this.elements.modal.addEventListener('click', (e) => {
+                if (e.target === this.elements.modal) this.close();
+            });
+        }
+    },
+    
+    getTodayDate() {
+        const today = new Date();
+        return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    },
+    
+    getDefaultDates() {
+        const today = new Date();
+        const monthAgo = new Date();
+        monthAgo.setMonth(today.getMonth() - 1);
+        return {
+            start: `${monthAgo.getFullYear()}-${String(monthAgo.getMonth() + 1).padStart(2, '0')}-${String(monthAgo.getDate()).padStart(2, '0')}`,
+            end: this.getTodayDate()
+        };
+    },
+    
+    toggleFields() {
+        const type = this.elements.exportType?.value;
+        const isSummary = type === 'summary';
+        
+        if (this.elements.periodGroup) this.elements.periodGroup.style.display = isSummary ? 'block' : 'none';
+        if (this.elements.dateRangeGroup) this.elements.dateRangeGroup.style.display = isSummary ? 'none' : 'block';
+        if (this.elements.departmentGroup) this.elements.departmentGroup.style.display = isSummary ? 'none' : 'block';
+    },
+    
+    validateDates() {
+        const startDate = this.elements.startDate?.value;
+        const endDate = this.elements.endDate?.value;
+        const today = this.getTodayDate();
+        const errorDiv = this.elements.dateRangeError;
+        
+        if (!errorDiv) return true;
+        
+        if (endDate && endDate > today) {
+            errorDiv.textContent = '⚠️ Дата окончания не может быть позже сегодняшнего дня';
+            errorDiv.style.display = 'block';
+            return false;
+        }
+        if (startDate && startDate > today) {
+            errorDiv.textContent = '⚠️ Дата начала не может быть позже сегодняшнего дня';
+            errorDiv.style.display = 'block';
+            return false;
+        }
+        if (startDate && endDate && startDate > endDate) {
+            errorDiv.textContent = '⚠️ Дата начала не может быть позже даты окончания';
+            errorDiv.style.display = 'block';
+            return false;
+        }
+        
+        errorDiv.style.display = 'none';
+        return true;
+    },
+    
+    open() {
+        if (!this.elements.modal) return;
+        
+        const defaultDates = this.getDefaultDates();
+        const today = this.getTodayDate();
+        
+        if (this.elements.startDate) {
+            this.elements.startDate.max = today;
+            this.elements.startDate.value = defaultDates.start;
+        }
+        if (this.elements.endDate) {
+            this.elements.endDate.max = today;
+            this.elements.endDate.value = defaultDates.end;
+        }
+        
+        this.toggleFields();
+        this.validateDates();
+        this.elements.modal.style.display = 'flex';
+        this.isOpen = true;
+    },
+    
+    close() {
+        if (this.elements.modal) {
+            this.elements.modal.style.display = 'none';
+            this.isOpen = false;
+        }
+    },
+    
+    performExport() {
+        const type = this.elements.exportType?.value;
+        
+        if (type === 'summary') {
+            const period = this.elements.exportPeriod?.value || 'all';
+            window.location.href = `/api/export_reports?period=${period}`;
+        } else {
+            if (!this.validateDates()) return;
+            
+            const department = this.elements.exportDepartment?.value || 'all';
+            let startDate = this.elements.startDate?.value;
+            let endDate = this.elements.endDate?.value;
+            
+            if (!endDate) endDate = this.getTodayDate();
+            if (!startDate) {
+                const defaults = this.getDefaultDates();
+                startDate = defaults.start;
+            }
+            
+            let url = `/api/export_detailed_reports?start_date=${startDate}&end_date=${endDate}`;
+            if (department && department !== 'all') {
+                url += `&department=${encodeURIComponent(department)}`;
+            }
+            
+            window.location.href = url;
+        }
+        this.close();
+    }
+};
+
+function showExportModal() { ExportModal.open(); }
+function closeExportModal() { ExportModal.close(); }
+function performExport() { ExportModal.performExport(); }
+
+// ==================== ИНИЦИАЛИЗАЦИЯ ====================
+document.addEventListener('DOMContentLoaded', function() {
+    renderAllCharts();
+    initDepartmentFilters();
+    ExportModal.init();
+    
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+});
+</script>
+
+<style>
+.trend-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+}
+.trend-success { background: rgba(58, 171, 142, 0.15); color: var(--color-success); }
+.trend-error { background: rgba(217, 83, 79, 0.15); color: var(--color-error); }
+.trend-neutral { background: var(--color-bg-soft); color: var(--color-text-soft); }
+.team-item { transition: all 0.2s ease; }
+.team-item:hover { background: var(--color-bg-soft); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 12px; }
+</style>
+
+{% endblock %}
+
+{% block content %}
+<div class="page-grid">
+    <div class="main-content">
+
+        <!-- Вкладки -->
+        <div class="tabs">
+            <button class="tab-link active" onclick="switchHRTab('overview', event)">
+                <i data-lucide="eye" style="width: 18px; height: 18px; margin-right: 8px;"></i>
+                Обзор
+            </button>
+            <button class="tab-link" onclick="switchHRTab('burnout', event)">
+                <i data-lucide="zap" style="width: 18px; height: 18px; margin-right: 8px;"></i>
+                Выгорание
+            </button>
+            <button class="tab-link" onclick="switchHRTab('attention', event)">
+                <i data-lucide="alert-triangle" style="width: 18px; height: 18px; margin-right: 8px;"></i>
+                Требуют внимания
+            </button>
+            <button class="tab-link" onclick="switchHRTab('best', event)">
+                <i data-lucide="star" style="width: 18px; height: 18px; margin-right: 8px;"></i>
+                Лучшие
+            </button>
+            <button class="tab-link" onclick="switchHRTab('all', event)">
+                <i data-lucide="users" style="width: 18px; height: 18px; margin-right: 8px;"></i>
+                Все сотрудники
+            </button>
+        </div>
+
+
+
+        <!-- Вкладка ОБЗОР -->
+        <div id="tab-overview" class="tab-content active">
+            <div class="hr-two-columns" style="display: grid; grid-template-columns: 1fr 0.8fr; gap: 24px;">
+                
+                <!-- ЛЕВАЯ КОЛОНКА -->
+                <div class="hr-left-column" style="display: flex; flex-direction: column; gap: 24px;">
+                    
+                    <!-- Карточка 1: Средний балл по отделам -->
+                    <div class="card">
+                        <h3 class="section-title">Средний балл по отделам</h3>
+                        <p class="info-note">Общий уровень эмоционального состояния</p>
+                        <div class="chart-container" style="height: 260px;">
+                            <canvas id="deptChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Карточка 2: Динамика выгорания (упрощённая, без фильтров) -->
+                    <div class="card" id="burnoutChartContainer">
+                        <h3 class="section-title" data-tooltip="Показывает динамику индекса выгорания по отделам и компании в целом. Индекс рассчитывается на основе эмоционального фона и ключевых слов в отчётах">
+                            Динамика выгорания
+                        </h3>
+                        <p class="info-note">Изменение индекса выгорания по компании и отделам</p>
+                        <div class="chart-container" style="height: 260px;">
+                            <canvas id="burnoutChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Карточка 3: Отчёты по отделам -->
+                    <div class="card">
+                        <h3 class="section-title">Активность отделов</h3>
+                        <p class="info-note">Количество отправленных отчётов</p>
+                        {% for dept in dept_reports_stats %}
+                        <div class="dept-report-row" style="display: flex; align-items: center; gap: 12px; padding: 8px 0;">
+                            <div class="dept-name" style="width: 100px; font-weight: 600;">{{ dept.department }}</div>
+                            <div class="dept-progress" style="flex: 1; background: var(--color-bg-soft); border-radius: 20px; height: 8px;">
+                                <div class="dept-progress-bar" style="width: {{ dept.percentage }}%;"></div>
+                            </div>
+                            <div class="dept-stats">
+                                <span class="dept-count">{{ dept.report_count }}</span>
+                                <span class="dept-percent">({{ dept.percentage }}%)</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                
+                <!-- ПРАВАЯ КОЛОНКА -->
+                <div class="hr-right-column" style="display: flex; flex-direction: column; gap: 24px;">
+                    
+                    <!-- Карточка 1: Быстрые метрики -->
+                    <div class="card">
+                        <h3 class="section-title">Ключевые показатели</h3>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 8px;">
+                            <div>
+                                <span class="stat-label" data-tooltip="Сотрудники с показателем ниже 60% требуют особого внимания">
+                                    Требуют внимания
+                                </span>
+                                <div class="stat-number" style="font-size: 28px;">{{ need_attention_count }}</div>
+                            </div>
+                            <div>
+                                <span class="stat-label" data-tooltip="Средний индекс выгорания по компании на основе последних отчётов">
+                                    Выгорание (сред.)
+                                </span>
+                                <div class="stat-number" style="font-size: 28px;">{{ "%.0f"|format(company_burnout_avg * 100) }}%</div>
+                            </div>
+                            <div>
+                                <span class="stat-label">Всего отчётов</span>
+                                <div class="stat-number" style="font-size: 28px;">{{ total_reports }}</div>
+                            </div>
+                            <div>
+                                <span class="stat-label">Сотрудников</span>
+                                <div class="stat-number" style="font-size: 28px;">{{ total_employees }}</div>
+                            </div>
+                        </div>
+                    </div>
+                                      
+                    <!-- Карточка 2: Распределение эмоций -->
+                    <div class="card">
+                        <h3 class="section-title">Распределение эмоций</h3>
+                        <p class="info-note">По последним отчётам сотрудников</p>
+                        <div class="chart-container" style="height: 180px;">
+                            <canvas id="emotionsChart"></canvas>
+                        </div>
+                        {% for emotion in emotion_stats %}
+                        <div style="display: flex; justify-content: space-between; padding: 6px 0;">
+                            <span>{{ emotion.label }}</span>
+                            <span class="stats-strong">{{ emotion.count }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    
+                    <!-- Карточка 3: Моральный дух -->
+                    <div class="card">
+                        <h3 class="section-title" data-tooltip="Взвешенный средний показатель эмоционального состояния по всей компании">
+                            Моральный дух
+                        </h3>
+                        <div class="stat-number" style="font-size: 48px; text-align: center;" data-tooltip="Чем выше процент, тем лучше общее эмоциональное состояние сотрудников">
+                            {{ avg_company_score }}%
+                        </div>
+                        <div class="progress-bar-bg" style="margin-top: 8px;">
+                            <div class="progress-bar-fill" style="width: {{ avg_company_score }}%;"></div>
+                        </div>
+                        {% if period_comparison %}
+                        <div style="margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--color-line-solid);">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span class="info-note">
+                                    Динамика за {{ current_month_ru }}
+                                </span>
+                                <span class="stats-strong" style="color: {% if period_comparison.change > 0 %}var(--color-success){% elif period_comparison.change < 0 %}var(--color-error){% endif %}">
+                                    {% if period_comparison.change > 0 %}↑{% elif period_comparison.change < 0 %}↓{% else %}→{% endif %}
+                                    {{ period_comparison.change|abs }}%
+                                </span>
+                            </div>
+                            <small class="info-note">{{ period_comparison.previous }}% → {{ period_comparison.current }}%</small>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Вкладка: ВЫГОРАНИЕ -->
+        <div id="tab-burnout" class="tab-content">
+            <div class="card">
+                <h3 class="section-title">Сотрудники с высоким риском выгорания</h3>
+                <div id="burnoutList"></div>
+            </div>
+        </div>
+
+        <!-- Вкладка: ТРЕБУЮТ ВНИМАНИЯ -->
+        <div id="tab-attention" class="tab-content">
+            <div class="card">
+                <h3 class="section-title">Сотрудники, требующие внимания</h3>
+                <div id="attentionList"></div>
+            </div>
+        </div>
+
+        <!-- Вкладка: ЛУЧШИЕ -->
+        <div id="tab-best" class="tab-content">
+            <div class="card">
+                <h3 class="section-title">Лучшие показатели</h3>
+                <div id="bestList"></div>
+            </div>
+        </div>
+
+        <!-- Вкладка: ВСЕ СОТРУДНИКИ -->
+        <div id="tab-all" class="tab-content">
+            <div class="card">
+                <h3 class="section-title">Все сотрудники</h3>
+                <div id="allEmployeesList"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- САЙДБАР -->
+    <aside class="widgets-sidebar">
+        <div class="stats-grid">
+            <!-- Кнопка экспорта -->
+            <div class="export-bar" style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+                <button class="btn btn-secondary" onclick="showExportModal()" style="display: flex; align-items: center; gap: 8px;">
+                    <i data-lucide="file-text" style="width: 16px; height: 16px;"></i>
+                    Экспорт данных
+                </button>
+            </div>
+            <div class="card stat-card">
+                <i data-lucide="heart" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                <span class="stat-label">Моральный дух</span>
+                <div class="stat-number">{{ avg_company_score }}%</div>
+                <p class="info-note">{% if avg_company_score > 70 %}↑ Выше среднего{% elif avg_company_score > 50 %}→ Средний уровень{% else %}↓ Требует внимания{% endif %}</p>
+            </div>
+            <div class="card stat-card">
+                <i data-lucide="alert-triangle" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                <span class="stat-label">Требуют внимания</span>
+                <div class="stat-number">{{ need_attention_count }}</div>
+                <p class="info-note">{% if team_attention_count == 0 %}Все в норме{% else %}Требуется поддержка{% endif %}</p>
+            </div>
+            <div class="card stat-card">
+                <i data-lucide="zap" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                <span class="stat-label">Индекс выгорания</span>
+                <div class="stat-number">{{ "%.0f"|format(company_burnout_avg * 100) }}%</div>
+                <div class="progress-bar-bg" style="margin-top: 8px;">
+                    <div class="progress-bar-fill" style="width: {{ company_burnout_avg * 100 }}%; background: linear-gradient(90deg, var(--color-warning), var(--color-error));"></div>
+                </div>
+            </div>
+            <div class="card stat-card">
+                <i data-lucide="file-text" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                <span class="stat-label">Всего отчётов</span>
+                <div class="stat-number">{{ total_reports }}</div>
+            </div>
+            <div class="card stat-card">
+                <i data-lucide="users" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                <span class="stat-label">Всего сотрудников</span>
+                <div class="stat-number">{{ total_employees }}</div>
+            </div>
+        </div>
+    </aside>
+</div>
+
+<!-- Модальное окно экспорта -->
+<div id="exportModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="background: white; border-radius: 24px; max-width: 450px; width: 90%; padding: 28px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+            <h3 class="section-title">Экспорт данных</h3>
+            <button onclick="closeExportModal()" style="background: none; border: none; font-size: 24px; cursor: pointer;">&times;</button>
+        </div>
+        
+        <div class="form-group">
+            <label>Тип экспорта</label>
+            <select id="exportType" class="period-input" style="width: 100%;">
+                <option value="summary">Сводка по сотрудникам</option>
+                <option value="detailed">Детальные отчёты (с текстами)</option>
+            </select>
+        </div>
+        
+        <div class="form-group" id="periodGroup">
+            <label>Период</label>
+            <select id="exportPeriod" class="period-input" style="width: 100%;">
+                <option value="all">За всё время</option>
+                <option value="month">За последний месяц</option>
+                <option value="quarter">За последний квартал</option>
+                <option value="year">За последний год</option>
+            </select>
+        </div>
+        
+        <div class="form-group" id="dateRangeGroup" style="display: none;">
+            <label>Диапазон дат</label>
+            <div style="display: flex; gap: 10px;">
+                <input type="date" id="startDate" class="period-input" style="flex: 1;">
+                <input type="date" id="endDate" class="period-input" style="flex: 1;">
+            </div>
+            <div id="dateRangeError" class="error-message" style="display: none; margin-top: 8px;"></div>
+        </div>
+        
+        <div class="form-group" id="departmentGroup" style="display: none;">
+            <label>Отдел (опционально)</label>
+            <select id="exportDepartment" class="period-input" style="width: 100%;">
+                <option value="all">Все отделы</option>
+                {% for dept in departments %}
+                    {% if dept != 'HR' %}
+                        <option value="{{ dept }}">{{ dept }}</option>
+                    {% endif %}
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div style="display: flex; gap: 12px; margin-top: 24px;">
+            <button class="btn btn-secondary" onclick="closeExportModal()" style="flex: 1;">Отмена</button>
+            <button class="btn btn-primary" onclick="performExport()" style="flex: 1;">Скачать CSV</button>
+        </div>
+    </div>
+</div>
+{% endblock %}

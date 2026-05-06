@@ -1,0 +1,535 @@
+{% extends 'layout.html' %} 
+
+{% block content %}
+    <div class="page-grid">
+        <div class="main-content">
+            <div class="tabs">
+                <button class="tab-link active" onclick="openTab(event, 'new-report')">
+                    <i data-lucide="plus-circle" style="width: 18px; height: 18px; margin-right: 8px;"></i>
+                    Новый отчёт
+                </button>
+                <button class="tab-link" onclick="openTab(event, 'history')">
+                    <i data-lucide="history" style="width: 18px; height: 18px; margin-right: 8px;"></i>
+                    История
+                </button>
+                <button class="tab-link" onclick="openTab(event, 'analytics')">
+                    <i data-lucide="bar-chart-3" style="width: 18px; height: 18px; margin-right: 8px;"></i>
+                    Аналитика
+                </button>
+            </div>
+
+            <!-- NEW REPORT TAB -->
+            <div id="new-report" class="tab-content active">
+                <div class="card hero-card">
+                    <h3 class="section-title">Как ваше состояние сегодня?</h3>
+                    <p class="info-note section-note">Опишите ваши мысли, успехи или трудности. Это поможет лучше понять ваше эмоциональное состояние.</p>
+                    <textarea id="reportText" rows="6" placeholder="Например: Сегодня был продуктивный день, удалось завершить важный проект..." oninput="validateReport()"></textarea>
+                    <div class="report-actions">
+                        <button class="btn btn-primary" id="submitBtn" onclick="sendReport()" disabled>
+                            <i data-lucide="send" style="width: 16px; height: 16px; margin-right: 6px;"></i>
+                            Отправить отчёт
+                        </button>
+                        <br>
+                        <span id="statusMsg" class="info-note"></span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- HISTORY TAB -->
+            <div id="history" class="tab-content">
+                <div class="filter-bar">
+                    <div class="date-filter">
+                        <input id="historyRange" class="period-input" placeholder="Выберите диапазон дат" readonly>
+                        <button id="clearHistoryRange" onclick="clearHistoryFilter()" style="display:none; position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer; color:var(--color-text-soft); line-height:0; padding:0;">
+                            ✕
+                        </button>
+                    </div>
+                </div>
+
+                {% if reports %}
+                <div class="history-list" id="historyList">
+                    {% for r in reports %}
+                    <div class="history-card" data-timestamp="{{ r.timestamp }}">
+                        <div class="history-header">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span class="date">{{ r.timestamp[:10] }}</span>
+                            </div>
+
+                            {% set emotion_class = '' %}
+                            {% if r.emotion %}
+                                {% set e_text = r.emotion.lower() %}
+                                {% if 'положительное' in e_text  %}
+                                    {% set emotion_class = 'pos' %}
+                                {% elif 'негативное' in e_text %}
+                                    {% set emotion_class = 'neg' %}
+                                {% endif %}
+                            {% endif %}
+                            <span class="emotion-tag {{ emotion_class }}">
+                                <i data-lucide="{% if 'положительное' in r.emotion %}smile{% elif 'негативное' in r.emotion %}frown{% else %}meh{% endif %}" 
+                                style="width: 14px; height: 14px; margin-right: 6px;"></i>
+                                {{ r.emotion or "Нет данных" }} • {{ (r.confidence * 100)|int }}%
+                            </span>
+                        </div>
+
+                        <p class="report-text">{{ r.text }}</p>
+
+                        <div class="keywords">
+                            {% for kw in r.keywords %}
+                                <span class="keyword">#{{ kw }}</span>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div id="historyEmpty" class="card empty-state" style="display:none;">
+                    <i data-lucide="circle-alert" style="width: 16px; height: 16px; margin-bottom: 12px;"></i>
+                    <h3 class="section-title">Нет отчётов за этот период</h3>
+                    <p class="info-note">Попробуйте выбрать другой диапазон дат</p>
+                </div>
+                {% else %}
+                <div class="card empty-state">
+                    <i data-lucide="file-text" style="width: 16px; height: 16px; margin-bottom: 12px;"></i>
+                    <h3 class="section-title">У вас пока нет отчётов</h3>
+                    <p class="info-note">Начните с создания первого отчёта о вашем состоянии</p>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- ANALYTICS TAB -->
+            <div id="analytics" class="tab-content">
+                <div class="filter-bar">
+                    <select id="analyticsPeriodSelect" onchange="setAnalyticsPeriod(this.value)" class="period-input">
+                        <option value="all">Всё время</option>
+                        <option value="year">Год</option>
+                        <option value="quarter">Квартал</option>
+                        <option value="month">Месяц</option>
+                        <option value="week">Неделя</option>
+                        <option value="day">День</option>
+                    </select>
+                </div>
+                <div class="card">
+                    <h3 class="section-title">Динамика эмоционального состояния</h3>
+                    <p class="info-note section-note">График показателей за выбранный период</p>
+                    <div id="analyticsEmpty" class="empty-state" style="display:none; padding: 32px 20px;">
+                        <svg class="icon-emotion" style="width: 16px; height: 16px;" data-lucide="circle-alert"></svg>
+                        <p class="info-note">Нет данных за выбранный период</p>
+                    </div>
+                    <div class="chart-container" id="analyticsChartWrap">
+                        <canvas id="analyticsChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    
+        <aside class="widgets-sidebar">
+            <div class="stats-grid">
+
+                <!-- Виджет календарь -->
+                <div class="card stat-card calendar-card">
+                    <i data-lucide="calendar" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                    <div class="calendar-widget" id="reportCalendar"></div>
+                </div>
+
+                <!-- Виджет текущее настроение -->
+                <div class="card stat-card">
+                    <i data-lucide="smile" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                    <span class="stat-label">Текущее настроение</span>
+                    <div style="display: flex; align-items: center; gap: 12px; margin-top: 10px;">
+                        {% if current_emotion %}
+                            {% if 'положительное' in current_emotion.lower() %}
+                                <svg class="icon-emotion" style="color: var(--color-primary); width: 32px; height: 32px;" data-lucide="Smile"></svg>
+                                <span class="info-note" style="font-size: 16px; font-weight: 600; color: var(--color-primary);"
+                                 data-tooltip="Оценка на основе текста вашего последнего отчёта">
+                                    {{ current_emotion }}
+                                </span>
+                            {% elif 'негативное' in current_emotion.lower() %}
+                                <svg class="icon-emotion" style="color: var(--color-error); width: 32px; height: 32px;" data-lucide="Frown"></svg>
+                                <span class="info-note" style="font-size: 16px; font-weight: 600; color: var(--color-error);"
+                                 data-tooltip="Оценка на основе текста вашего последнего отчёта">
+                                    {{ current_emotion }}
+                                </span>
+                            {% else %}
+                                <svg class="icon-emotion" style="color: var(--color-teal); width: 32px; height: 32px;" data-lucide="Meh"></svg>
+                                <span class="info-note" style="font-size: 16px; font-weight: 600; color: var(--color-teal);"
+                                 data-tooltip="Оценка на основе текста вашего последнего отчёта">
+                                    {{ current_emotion }}
+                                </span>
+                            {% endif %}
+                        {% else %}
+                            <span class="info-note" style="font-size: 16px; font-weight: 600;">
+                                Нет данных
+                            </span>
+                        {% endif %}
+                    </div>
+                    <span class="info-note">по последнему отчёту</span>
+                </div>
+
+                <!-- Виджет Общее самочувствие (взвешенный) -->
+                <div class="card stat-card">
+                    <i data-lucide="heart" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                    <span class="stat-label">Общее самочувствие</span>
+                    <div class="stat-number" data-tooltip="Взвешенный показатель за всё время. Более свежие отчёты имеют больший вес">
+                        {{ avg_score }}%
+                    </div>
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" style="width: {{ avg_score }}%;"></div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
+                        {% if score_trend and score_trend.change != 0 %}
+                            <span class="trend-badge trend-{{ score_trend.color }}">
+                                {{ score_trend.icon }} {{ score_trend.change }}%
+                            </span>
+                            <span class="info-note" style="font-size: 11px;">за 7 дней</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Виджет риска выгорания -->
+                <div class="card stat-card">
+                    <i data-lucide="Zap" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                    <span class="stat-label">Риск выгорания</span>
+                    <div class="stat-number" style="font-size: 28px;" data-tooltip="Рассчитывается на основе эмоционального фона, ключевых слов и динамики предыдущих отчётов">
+                        {{ "%.0f"|format(burnout_current * 100) }}%
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                        {% if burnout_trend > 0.01 %}
+                            <span class="info-note" style="color: var(--color-error); display: flex; align-items: center; gap: 4px;">
+                                ↑ растёт 
+                                <strong style="font-size: 13px;">+{{ burnout_trend_percent }}%</strong>
+                            </span>
+                        {% elif burnout_trend < -0.01 %}
+                            <span class="info-note" style="color: var(--color-success); display: flex; align-items: center; gap: 4px;">
+                                ↓ снижается 
+                                <strong style="font-size: 13px;">{{ burnout_trend_percent }}%</strong>
+                            </span>
+                        {% else %}
+                            <span class="info-note">стабильно → 0%</span>
+                        {% endif %}
+                    </div>
+                    <div class="progress-bar-bg" style="margin-top: 12px;">
+                        <div class="progress-bar-fill" style="width: {{ burnout_current * 100 }}%; background: linear-gradient(90deg, var(--color-warning), var(--color-error));"></div>
+                    </div>
+                </div>
+
+                <!-- Виджет всего отчётов -->
+                <div class="card stat-card">
+                    <i data-lucide="file-text" style="width: 18px; height: 18px; margin-bottom: 8px;"></i>
+                    <span class="stat-label">Всего отчётов</span>
+                    <div class="stat-number">{{ reports|length }}</div>
+                </div>
+
+            </div>
+
+        </aside>
+    </div>
+
+    <script>
+        // ── DATA FROM SERVER ──
+        const allReports = [
+            {% for r in reports %}
+            {
+                date: "{{ r.timestamp[:10] }}",
+                text: {{ r.text | tojson }},
+                emotion: "{{ r.emotion }}",
+                confidence: {{ r.confidence if r.confidence else 0 }}
+            },
+            {% endfor %}
+        ];
+
+        const reportDates = [
+            {% for r in reports %}
+            "{{ r.timestamp[:10] }}",
+            {% endfor %}
+        ];
+
+        // ── TAB SWITCHING ──
+        function openTab(evt, tabName) {
+            document.querySelectorAll(".tab-content").forEach(t => t.classList.remove("active"));
+            document.querySelectorAll(".tab-link").forEach(t => t.classList.remove("active"));
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+
+            if (tabName === 'analytics') {
+                setTimeout(() => {
+                    if (allReports && allReports.length > 0) {
+                        renderAnalyticsChart(allReports);
+                    } else {
+                        const empty = document.getElementById('analyticsEmpty');
+                        const chartWrap = document.getElementById('analyticsChartWrap');
+                        if (empty) empty.style.display = 'block';
+                        if (chartWrap) chartWrap.style.display = 'none';
+                    }
+                }, 100);
+            }
+        }
+
+        // ── FORM VALIDATION ──
+        function validateReport() {
+            const text = document.getElementById('reportText').value.trim();
+            const btn = document.getElementById('submitBtn');
+            const status = document.getElementById('statusMsg');
+            if (text.length >= 20) {
+                btn.disabled = false;
+                status.innerText = "";
+            } else {
+                btn.disabled = true;
+                status.innerText = text.length > 0 ? "Минимум 20 символов" : "";
+            }
+        }
+
+        // ── HISTORY DATE FILTER ──
+        window.clearHistoryFilter = function() {
+            if (document.getElementById('historyRange')._flatpickr) {
+                document.getElementById('historyRange')._flatpickr.clear();
+            }
+            document.querySelectorAll('#historyList .history-card').forEach(c => c.style.display = '');
+            const empty = document.getElementById('historyEmpty');
+            if (empty) empty.style.display = 'none';
+            const list = document.getElementById('historyList');
+            if (list) list.style.display = '';
+            document.getElementById('clearHistoryRange').style.display = 'none';
+        };
+
+        window.filterHistoryByDates = function(startDate, endDate) {
+            const cards = document.querySelectorAll('#historyList .history-card');
+            const startStr = formatDate(startDate);
+            const endStr = formatDate(endDate);
+            let visible = 0;
+
+            cards.forEach(card => {
+                const ts = card.dataset.timestamp || '';
+                const cardDate = ts.substring(0, 10);
+                const show = cardDate >= startStr && cardDate <= endStr;
+                card.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+
+            const empty = document.getElementById('historyEmpty');
+            const list = document.getElementById('historyList');
+            if (empty) empty.style.display = visible === 0 ? 'block' : 'none';
+            if (list) list.style.display = visible === 0 ? 'none' : '';
+            document.getElementById('clearHistoryRange').style.display = visible === 0 ? 'flex' : 'none';
+        };
+
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // ── ANALYTICS PERIOD FILTER ──
+        let analyticsChartInstance = null;
+
+        window.setAnalyticsPeriod = function(period) {
+            document.getElementById('analyticsPeriodSelect').value = period;
+            
+            if (!allReports || allReports.length === 0) {
+                return;
+            }
+            
+            const now = new Date();
+            let startDate = new Date(0);
+            
+            if (period !== 'all') {
+                startDate = new Date();
+                switch(period) {
+                    case 'year': startDate.setFullYear(now.getFullYear() - 1); break;
+                    case 'quarter': startDate.setMonth(now.getMonth() - 3); break;
+                    case 'month': startDate.setMonth(now.getMonth() - 1); break;
+                    case 'week': startDate.setDate(now.getDate() - 7); break;
+                    case 'day': startDate.setDate(now.getDate() - 1); break;
+                }
+            }
+            
+            const filteredReports = allReports.filter(r => {
+                const reportDate = new Date(r.date);
+                return reportDate >= startDate;
+            });
+            
+            renderAnalyticsChart(filteredReports);
+        };
+
+        function renderAnalyticsChart(reports) {
+            const ctx = document.getElementById('analyticsChart');
+            if (!ctx) {
+                console.error('Canvas элемент analyticsChart не найден');
+                return;
+            }
+            
+            if (!reports || !Array.isArray(reports) || reports.length === 0) {
+                const empty = document.getElementById('analyticsEmpty');
+                const chartWrap = document.getElementById('analyticsChartWrap');
+                if (empty) empty.style.display = 'block';
+                if (chartWrap) chartWrap.style.display = 'none';
+                return;
+            }
+            
+            const empty = document.getElementById('analyticsEmpty');
+            const chartWrap = document.getElementById('analyticsChartWrap');
+            if (empty) empty.style.display = 'none';
+            if (chartWrap) chartWrap.style.display = 'block';
+            
+            // Группируем по датам и берём средний confidence за день
+            const dailyData = {};
+            reports.forEach(r => {
+                if (!dailyData[r.date]) {
+                    dailyData[r.date] = { total: 0, count: 0 };
+                }
+                dailyData[r.date].total += r.confidence * 100;
+                dailyData[r.date].count++;
+            });
+            
+            const sortedDates = Object.keys(dailyData).sort().slice(-14);
+            const labels = sortedDates.map(d => {
+                const parts = d.split('-');
+                return `${parts[2]}.${parts[1]}`;
+            });
+            const data = sortedDates.map(d => Math.round(dailyData[d].total / dailyData[d].count));
+
+            if (window.analyticsChartInstance) {
+                window.analyticsChartInstance.destroy();
+            }
+
+            try {
+                window.analyticsChartInstance = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Уровень эмоциональной стабильности (%)',
+                            data: data,
+                            borderColor: '#7c9cd8',
+                            backgroundColor: 'rgba(124, 156, 216, 0.1)',
+                            tension: 0.3,
+                            fill: true,
+                            pointBackgroundColor: '#7c9cd8',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2,
+                            pointRadius: 4,
+                            borderWidth: 2.5
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                backgroundColor: '#fff',
+                                titleColor: '#1a2a14',
+                                bodyColor: '#5a6e4e',
+                                borderColor: '#d0dec0',
+                                borderWidth: 1,
+                                cornerRadius: 8
+                            }
+                        },
+                        scales: {
+                            y: { 
+                                beginAtZero: true, 
+                                max: 100,
+                                grid: { color: '#e8ede2' },
+                                ticks: { color: '#5a6e4e', font: { size: 11 } }
+                            },
+                            x: { 
+                                grid: { display: false },
+                                ticks: { color: '#5a6e4e', font: { size: 11 } }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error('Ошибка при создании графика:', error);
+            }
+        }
+
+        // ── CALENDAR ──
+        function renderCalendar() {
+            const calendar = document.getElementById('reportCalendar');
+            if (!calendar) return;
+
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth();
+
+            const monthNames = ['Январь','Февраль','Март','Апрель','Май','Июнь',
+                                'Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            let firstDay = new Date(year, month, 1).getDay();
+            firstDay = firstDay === 0 ? 6 : firstDay - 1;
+
+            let html = `<div class="calendar-header">${monthNames[month]} ${year}</div>`;
+            html += '<div class="calendar-grid">';
+            ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].forEach(d =>
+                html += `<div class="calendar-day-header">${d}</div>`);
+            for (let i = 0; i < firstDay; i++) html += '<div class="calendar-day empty"></div>';
+            
+            const todayYear = now.getFullYear();
+            const todayMonth = String(now.getMonth() + 1).padStart(2, '0');
+            const todayDay = String(now.getDate()).padStart(2, '0');
+            const todayStr = `${todayYear}-${todayMonth}-${todayDay}`;
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                const hasReport = reportDates.includes(dateStr);
+                const isToday = dateStr === todayStr;
+                html += `<div class="calendar-day${hasReport?' has-report':''}${isToday?' today':''}">${day}</div>`;
+            }
+            html += '</div>';
+            calendar.innerHTML = html;
+        }
+
+        // ── SEND REPORT ──
+        async function sendReport() {
+            const text = document.getElementById('reportText').value;
+            const status = document.getElementById('statusMsg');
+            const btn = document.getElementById('submitBtn');
+
+            if (text.length < 20) { status.innerText = "Минимум 20 символов"; return; }
+
+            btn.disabled = true;
+            btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="animation:spin 1s linear infinite"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Анализируем...`;
+            status.innerText = "";
+
+            const formData = new FormData();
+            formData.append('text', text);
+
+            const response = await fetch('/api/analyze', { method: 'POST', body: formData });
+            if (response.ok) {
+                location.reload();
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = 'Отправить отчёт';
+                status.innerText = "Ошибка. Попробуйте снова.";
+            }
+        }
+
+        // ── FLATPICKR INIT ──
+        document.addEventListener('DOMContentLoaded', function() {
+            renderCalendar();
+
+            const historyRange = document.getElementById('historyRange');
+            if (historyRange && window.flatpickr) {
+                flatpickr(historyRange, {
+                    mode: 'range',
+                    dateFormat: 'Y-m-d',
+                    maxDate: 'today',
+                    locale: 'ru',
+                    showMonths: 2,
+                    onChange: function(selectedDates) {
+                        if (selectedDates.length === 2) {
+                            filterHistoryByDates(selectedDates[0], selectedDates[1]);
+                        }
+                    }
+                });
+            }
+        });
+
+        // Spin animation for loading
+        const style = document.createElement('style');
+        style.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
+        document.head.appendChild(style);
+    </script>
+{% endblock %}
