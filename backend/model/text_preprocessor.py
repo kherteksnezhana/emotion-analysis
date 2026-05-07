@@ -1,8 +1,10 @@
-
 import re
-from typing import List, Set
+from typing import Set
 
-# Расширенный список стоп-слов для русского языка
+# ─────────────────────────────────────────────────────────────────────────────
+# Стоп-слова русского языка
+# ─────────────────────────────────────────────────────────────────────────────
+
 RUSSIAN_STOP_WORDS: Set[str] = {
     # Местоимения
     'я', 'ты', 'он', 'она', 'оно', 'мы', 'вы', 'они',
@@ -10,201 +12,127 @@ RUSSIAN_STOP_WORDS: Set[str] = {
     'мне', 'тебе', 'нему', 'ней', 'нам', 'вам', 'ним',
     'мой', 'твой', 'его', 'её', 'их', 'наш', 'ваш',
     'свой', 'этот', 'тот', 'такой', 'такая', 'такое', 'такие',
-    
     # Предлоги и союзы
     'и', 'в', 'во', 'на', 'с', 'со', 'к', 'у', 'о', 'об',
     'по', 'за', 'под', 'над', 'перед', 'через', 'для', 'без',
     'до', 'из', 'от', 'про', 'при', 'между', 'сквозь',
     'а', 'но', 'да', 'или', 'либо', 'то', 'что', 'чтобы',
     'потому', 'поэтому', 'также', 'тоже', 'как', 'будто',
-    
     # Частицы и вводные слова
     'не', 'ни', 'ли', 'же', 'бы', 'ж', 'ведь', 'вот', 'вон',
     'даже', 'уже', 'ещё', 'только', 'почти', 'совсем',
     'очень', 'слишком', 'так', 'как-то', 'где-то', 'когда-то',
-    
     # Глаголы-связки
     'быть', 'стать', 'являться', 'казаться', 'становиться',
     'есть', 'было', 'была', 'были', 'будет', 'будут',
-    
-    # Повторы
+    # Временны́е наречия
     'сегодня', 'вчера', 'завтра', 'сейчас', 'тогда', 'там', 'тут',
     'здесь', 'везде', 'всюду', 'никогда', 'всегда',
-    
     # Слова-паразиты
-    'также', 'короче', 'например', 'вообще', 'наверное',
-    'конечно', 'действительно', 'наверняка', 'практически'
+    'короче', 'например', 'вообще', 'наверное',
+    'конечно', 'действительно', 'наверняка', 'практически',
 }
 
-# Удалить лишние варианты из списка (добавили русские предлоги, удалим английские артефакты)
-def clean_english_artifacts():
-    """Очищает возможные английские артефакты из стоп-слов"""
-    pass  # пока оставим, просто для справки
+# ─────────────────────────────────────────────────────────────────────────────
+# Регулярные выражения
+# ─────────────────────────────────────────────────────────────────────────────
 
-# Функция нормализации чисел — заменяем числа на специальный токен
-NUMBER_PATTERN = re.compile(r'\b\d+(?:[.,]\d+)?\b')
+_NUMBER_RE = re.compile(r'\b\d+(?:[.,]\d+)?\b')
+_EXTRA_SPACE_RE = re.compile(r'\s+')
+_PUNCT_RE = re.compile(r'[^\w\s!?<>\'"()]')
+_EXCL_RE = re.compile(r'([!?]+)')
 
-def replace_numbers_with_token(text: str, token: str = '<NUM>') -> str:
-    """Заменяет числа на специальный токен"""
-    return NUMBER_PATTERN.sub(token, text)
 
-# Функция очистки текста
-def clean_text(text: str, 
-               lowercase: bool = True,
-               remove_punctuation: bool = True,
-               replace_numbers: bool = True,
-               remove_stopwords: bool = False,
-               strip_extra_spaces: bool = True) -> str:
-    """
-    Многофункциональная очистка текста.
-    
-    Аргументы:
-        text: исходный текст
-        lowercase: привести к нижнему регистру
-        remove_punctuation: удалить пунктуацию
-        replace_numbers: заменить числа на <NUM>
-        remove_stopwords: удалить стоп-слова
-        strip_extra_spaces: убрать лишние пробелы
-    
-    Возвращает:
-        очищенный текст
-    """
+def clean_text(
+    text: str,
+    lowercase: bool = True,
+    remove_punctuation: bool = True,
+    replace_numbers: bool = True,
+    remove_stopwords: bool = False,
+    strip_extra_spaces: bool = True,
+) -> str:
+    """Многофункциональная очистка текста."""
     if not text:
         return ""
-    
-    result = text
-    
-    # Приводим к нижнему регистру
-    if lowercase:
-        result = result.lower()
-    
-    # Заменяем числа
+
+    result = text.lower() if lowercase else text
+
     if replace_numbers:
-        result = replace_numbers_with_token(result)
-    
-    # Удаляем пунктуацию (оставляем буквы, цифры, пробелы, и символы, которые мы не хотим удалять)
+        result = _NUMBER_RE.sub(' <NUM> ', result)
+
     if remove_punctuation:
-        # Удаляем знаки препинания, но сохраняем ! ? потому что они важны для эмоций
-        result = re.sub(r'[^\w\s!?<>\'\"()]', ' ', result)
-        # Убираем лишние угловые скобки если они пустые
-        result = re.sub(r'<NUM>', ' <NUM> ', result)
-        # Убираем восклицание и вопрос если они прилипли к словам
-        result = re.sub(r'(\!+|\?+)', r' \1 ', result)
-    
-    # Удаляем стоп-слова
+        result = _PUNCT_RE.sub(' ', result)
+        result = _EXCL_RE.sub(r' \1 ', result)
+
     if remove_stopwords:
-        words = result.split()
-        words = [w for w in words if w not in RUSSIAN_STOP_WORDS]
-        result = ' '.join(words)
-    
-    # Убираем лишние пробелы
+        result = ' '.join(w for w in result.split() if w not in RUSSIAN_STOP_WORDS)
+
     if strip_extra_spaces:
-        result = re.sub(r'\s+', ' ', result).strip()
-    
+        result = _EXTRA_SPACE_RE.sub(' ', result).strip()
+
     return result
 
 
 def preprocess_for_model(text: str, max_length: int = 512) -> str:
-    """
-    Предобработка текста специально для модели RuBERT.
-    
-    RuBERT ожидает обычный текст, но мы можем:
-    1. Привести к нижнему регистру (не всегда нужно, но для sentiment полезно)
-    2. Нормализовать числа
-    3. Ограничить длину
-    
-    Возвращает:
-        текст, готовый для подачи в модель
-    """
-    # Базовая очистка
+    """Предобработка текста для RuBERT: нижний регистр + нормализация чисел."""
     cleaned = clean_text(
         text,
-        lowercase=True,        # Приводим к нижнему регистру для модели
-        remove_punctuation=False,  # Оставляем пунктуацию для эмоциональной окраски
-        replace_numbers=True,      # Заменяем числа на <NUM>
-        remove_stopwords=False,    # Стоп-слова НЕ удаляем для модели (она сама училась на них)
-        strip_extra_spaces=True
+        lowercase=True,
+        remove_punctuation=False,   # Пунктуация несёт эмоциональную нагрузку
+        replace_numbers=True,
+        remove_stopwords=False,     # Модель обучалась со стоп-словами
+        strip_extra_spaces=True,
     )
-    
-    # Ограничиваем длину (безопасно для трансформеров)
-    if len(cleaned) > max_length:
-        cleaned = cleaned[:max_length]
-    
-    return cleaned
+    return cleaned[:max_length]
 
 
 def postprocess_sentiment_scores(scores: dict) -> dict:
     """
-    Постобработка вероятностей от модели для коррекции дисбаланса.
-    
-    Проблема: модель часто выдает ~75% для негатива из-за дисбаланса в данных.
-    Решение: нормализация распределения.
-    
-    Применяем:
-    1. Нормализацию с использованием температурного параметра
-    2. Сглаживание для предотвращения экстремальных значений
+    Коррекция вероятностей от RuBERT.
+
+    Модель склонна завышать класс «negative» из-за дисбаланса обучающей выборки.
+    Применяем мягкое сглаживание и перенормировку.
     """
     if not scores:
         return scores
-    
-    # Извлекаем вероятности
+
     pos = scores.get('positive', 0.0)
     neu = scores.get('neutral', 0.0)
     neg = scores.get('negative', 0.0)
-    
-    # Сумма должна быть 1
+
+    # Нормализуем до суммы = 1
     total = pos + neu + neg
     if total > 0:
         pos /= total
         neu /= total
         neg /= total
-    
-    # 🔧 КОРРЕКЦИЯ: модель занижает негатив? Или завышает?
-    # Наблюдение: negative часто около 0.75, но это не нормально.
-    # Сделаем ребалансировку:
-    
-    # Если нейтраль доминирует - размазываем
+
+    # Если нейтраль доминирует — слегка размазываем
     if neu > max(pos, neg):
-        # Уменьшаем нейтраль
-        neu = neu * 0.6
-        # Перераспределяем между pos и neg
-        pos = pos * 1.2
-        neg = neg * 1.2
-        # Нормализуем обратно
+        neu *= 0.6
+        pos *= 1.2
+        neg *= 1.2
         s = pos + neu + neg
-        if s > 0:
-            pos /= s
-            neu /= s
-            neg /= s
-    
-    # Если negative слишком высок (>0.7) и нет явных признаков негатива в тексте
-    # (можно добавить проверку по ключевым словам), но пока оставим
+        if s:
+            pos, neu, neg = pos / s, neu / s, neg / s
+
+    # Если negative неправдоподобно высок при низком positive — уменьшаем
     if neg > 0.7 and pos < 0.2:
-        # Подозрительно высокий негатив. Уменьшим его на 20%
-        neg = neg * 0.8
-        pos = pos * 1.2
-        # Нормализуем
+        neg *= 0.8
+        pos *= 1.2
         s = pos + neu + neg
-        if s > 0:
-            pos /= s
-            neu /= s
-            neg /= s
-    
-    # Сглаживание: не допускаем вероятности ниже 0.05 и выше 0.95
+        if s:
+            pos, neu, neg = pos / s, neu / s, neg / s
+
+    # Сглаживание: не допускаем экстремальных значений
     epsilon = 0.05
     pos = min(max(pos, epsilon), 1 - epsilon)
     neu = min(max(neu, epsilon), 1 - epsilon)
     neg = min(max(neg, epsilon), 1 - epsilon)
-    
-    # Нормализуем после сглаживания
+
     s = pos + neu + neg
-    if s > 0:
-        pos = round(pos / s, 4)
-        neu = round(neu / s, 4)
-        neg = round(neg / s, 4)
-    
     return {
-        'positive': pos,
-        'neutral': neu,
-        'negative': neg
+        'positive': round(pos / s, 4),
+        'neutral':  round(neu / s, 4),
+        'negative': round(neg / s, 4),
     }

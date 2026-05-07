@@ -1,0 +1,38 @@
+# Окружение — НИКОГДА не коммитить
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info
+dist/
+build/
+venv/
+.venv/
+
+# База данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Модели (большие файлы)
+*.bin
+*.pt
+*.pth
+model_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Логи
+*.log

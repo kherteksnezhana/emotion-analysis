@@ -3,10 +3,9 @@
         <h2>{{ user.full_name }}</h2>
         <p>{{ user.department }} • {{ user.role }}</p>
     </div>
-    <!-- POST /api/logout для удаления сессии -->
     <form action="/api/logout" method="POST" style="display:inline;">
         <button type="submit" class="btn btn-exit">
-            <i data-lucide="log-out" style="width: 16px; height: 16px; margin-right: 6px;"></i>
+            <i data-lucide="log-out" style="width:16px;height:16px;margin-right:6px;"></i>
             Выйти
         </button>
     </form>
