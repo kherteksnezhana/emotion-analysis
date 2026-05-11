@@ -1,0 +1,22 @@
+# Зависимости для запуска тестов
+# Установка: pip install -r requirements-test.txt
+
+# Основные тест-инструменты
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# HTTP-клиент для тестирования FastAPI
+httpx>=0.25.0
+
+# Работа с датасетом
+pandas>=2.0.0
+
+# Для мокирования psycopg3 в тестах
+psycopg-pool>=3.2.0
+
+# Мокирование (входит в stdlib, но указываем явно)
+# unittest.mock — стандартная библиотека Python 3.x
+
+# Опционально: красивый вывод
+pytest-sugar>=0.9.7

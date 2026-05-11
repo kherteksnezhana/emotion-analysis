@@ -19,14 +19,22 @@ from backend.config import (
 )
 from backend.model.text_preprocessor import preprocess_for_model, postprocess_sentiment_scores
 
-print("Загрузка модели RuBERT... (при первом запуске может занять 20-60 секунд)")
+# Глобальный кэш модели - загружается один раз при первом использовании
+_classifier = None
 
-classifier = pipeline(
-    "text-classification",
-    model=EMOTION_MODEL_NAME,
-    return_all_scores=True,
-    device=EMOTION_MODEL_DEVICE,
-)
+
+def _get_classifier():
+    """Ленивая загрузка модели с кэшированием."""
+    global _classifier
+    if _classifier is None:
+        print("Загрузка модели RuBERT... (при первом запуске может занять 20-60 секунд)")
+        _classifier = pipeline(
+            "text-classification",
+            model=EMOTION_MODEL_NAME,
+            return_all_scores=True,
+            device=EMOTION_MODEL_DEVICE,
+        )
+    return _classifier
 
 _LEVEL_WEIGHTS = {
     "high": BURNOUT_WEIGHT_HIGH,
@@ -137,7 +145,7 @@ def analyze_emotion(text: str, user_history: list = None) -> dict:
         print(f"[DEBUG] Оригинал: {text[:100]}...")
         print(f"[DEBUG] После очистки: {cleaned_text[:100]}...")
 
-        output = classifier(cleaned_text[:EMOTION_MODEL_MAX_LENGTH])
+        output = _get_classifier()(cleaned_text[:EMOTION_MODEL_MAX_LENGTH])
 
         scores: dict = {}
         if isinstance(output, list) and output:
